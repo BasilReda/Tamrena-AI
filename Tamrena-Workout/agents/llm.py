@@ -6,6 +6,7 @@ the InBody/RAG pipelines use the Google GenAI / Gemini client configured via .en
 """
 
 import asyncio
+import base64
 import json
 import os
 import random
@@ -125,6 +126,31 @@ def _parse_tool_calls(ai_text: str) -> Optional[List[Dict[str, Any]]]:
                 }
             )
     return calls or None
+
+
+def _openai_tools_to_gemini(tools: List[Dict[str, Any]]) -> list:
+    """Convert the OpenAI-style tool schemas LangChain hands us
+    (``{"type": "function", "function": {name, description, parameters}}``)
+    into a single Gemini ``Tool`` with one ``FunctionDeclaration`` per tool.
+
+    google-genai >= 2.x accepts a full JSON Schema via ``parameters_json_schema``
+    (no need to down-convert to the OpenAPI subset).
+    """
+    declarations = []
+    for t in tools or []:
+        fn = t.get("function", t) if isinstance(t, dict) else {}
+        name = fn.get("name")
+        if not name:
+            continue
+        params = fn.get("parameters") or {"type": "object", "properties": {}}
+        declarations.append(
+            types.FunctionDeclaration(
+                name=name,
+                description=fn.get("description") or "",
+                parameters_json_schema=params,
+            )
+        )
+    return [types.Tool(function_declarations=declarations)] if declarations else []
 
 
 def _validate_schema(data: Any, schema: Any) -> Any:
@@ -254,13 +280,22 @@ class GoogleGenAIChat(BaseChatModel):
             raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY is not set. Please add it to your .env file.")
         return genai.Client(api_key=key)
 
+    def _use_native_fc(self, tools: Any) -> bool:
+        """Gemini models do native function calling; the text-envelope hack is
+        only for models without it (e.g. Gemma). A Gemini model asked to emit
+        the ``{"tool_calls": [...]}`` text instead reliably returns
+        finish_reason=MALFORMED_FUNCTION_CALL with an empty body, which
+        silently ends the agent graph."""
+        return bool(tools) and "gemini" in (self.model_name or "").lower()
+
     def _format_contents(self, messages: List[BaseMessage], **kwargs: Any) -> tuple[str, list[types.Content]]:
         system_instruction = "You are a helpful fitness and workout assistant."
         contents: list[types.Content] = []
 
         tools = kwargs.get("tools")
+        native_fc = self._use_native_fc(tools)
         tool_instructions = ""
-        if tools:
+        if tools and not native_fc:
             tool_instructions = (
                 "\n\nYou have access to the following tools:\n"
                 f"```json\n{json.dumps(tools, indent=2)}\n```\n"
@@ -292,26 +327,57 @@ class GoogleGenAIChat(BaseChatModel):
                     text = str(msg.content)
                 contents.append(types.Content(role="user", parts=[types.Part.from_text(text=text)]))
             elif isinstance(msg, AIMessage):
-                if msg.tool_calls:
-                    content_str = json.dumps(
-                        {
-                            "tool_calls": [
-                                {"name": tc["name"], "arguments": tc.get("args", {})}
-                                for tc in msg.tool_calls
-                            ]
-                        }
-                    )
+                if msg.tool_calls and native_fc:
+                    parts = []
+                    if isinstance(msg.content, str) and msg.content.strip():
+                        parts.append(types.Part.from_text(text=msg.content))
+                    sigs = (msg.additional_kwargs or {}).get("__gemini_thought_signatures", {})
+                    for tc in msg.tool_calls:
+                        fc_part = types.Part.from_function_call(name=tc["name"], args=tc.get("args", {}) or {})
+                        # Gemini 3 rejects function_call history that omits the
+                        # thought_signature it originally returned.
+                        b64 = sigs.get(tc.get("id"))
+                        if b64:
+                            try:
+                                fc_part.thought_signature = base64.b64decode(b64)
+                            except Exception:
+                                pass
+                        parts.append(fc_part)
+                    contents.append(types.Content(role="model", parts=parts))
                 else:
-                    content_str = msg.content if isinstance(msg.content, str) else str(msg.content)
-                contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content_str)]))
+                    if msg.tool_calls:
+                        content_str = json.dumps(
+                            {
+                                "tool_calls": [
+                                    {"name": tc["name"], "arguments": tc.get("args", {})}
+                                    for tc in msg.tool_calls
+                                ]
+                            }
+                        )
+                    else:
+                        content_str = msg.content if isinstance(msg.content, str) else str(msg.content)
+                    contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content_str)]))
             elif isinstance(msg, ToolMessage):
                 result_text = msg.content if isinstance(msg.content, str) else str(msg.content)
-                contents.append(
-                    types.Content(
-                        role="user",
-                        parts=[types.Part.from_text(text=f"[Result of tool '{msg.name}']: {result_text}")],
+                if native_fc:
+                    contents.append(
+                        types.Content(
+                            role="user",
+                            parts=[
+                                types.Part.from_function_response(
+                                    name=msg.name or "tool",
+                                    response={"result": result_text},
+                                )
+                            ],
+                        )
                     )
-                )
+                else:
+                    contents.append(
+                        types.Content(
+                            role="user",
+                            parts=[types.Part.from_text(text=f"[Result of tool '{msg.name}']: {result_text}")],
+                        )
+                    )
 
         if tool_instructions:
             system_instruction += tool_instructions
@@ -352,6 +418,68 @@ class GoogleGenAIChat(BaseChatModel):
             return AIMessage(content="", tool_calls=tool_calls)
         return AIMessage(content=ai_text)
 
+    @staticmethod
+    def _response_text(response: Any) -> str:
+        """Concatenate only the text parts of a Gemini response.
+
+        ``response.text`` raises/warns and returns nothing useful when the
+        candidate also contains non-text parts (e.g. a native ``function_call``)
+        — read the parts directly so a mixed response still yields its text.
+        """
+        try:
+            parts = response.candidates[0].content.parts or []
+            text = "".join(getattr(p, "text", "") or "" for p in parts)
+            if text:
+                return text
+        except (AttributeError, IndexError, TypeError):
+            pass
+        try:
+            return response.text or ""
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _extract_native_tool_calls(response: Any) -> Optional[List[Dict[str, Any]]]:
+        """Newer Gemini models (e.g. gemini-2.x / 3.x flash) emit real
+        ``function_call`` parts instead of the prompt-injected
+        ``{"tool_calls": [...]}`` text envelope this client asks for. Those
+        parts are invisible to ``response.text``, so without this the agent's
+        tool call is silently dropped and the orchestration graph ends early
+        (no sub-agents dispatched, empty plan). Convert them to LangChain
+        tool-call dicts so both calling styles work.
+        """
+        try:
+            parts = response.candidates[0].content.parts or []
+        except (AttributeError, IndexError, TypeError):
+            return None
+
+        calls: List[Dict[str, Any]] = []
+        signatures: Dict[str, str] = {}
+        for part in parts:
+            fc = getattr(part, "function_call", None)
+            if not fc or not getattr(fc, "name", None):
+                continue
+            raw_args = getattr(fc, "args", None) or {}
+            try:
+                args = json.loads(json.dumps(dict(raw_args), default=str))
+            except (TypeError, ValueError):
+                args = dict(raw_args) if hasattr(raw_args, "keys") else {}
+            call_id = f"call_{uuid.uuid4().hex[:16]}"
+            calls.append(
+                {
+                    "name": fc.name,
+                    "args": args if isinstance(args, dict) else {},
+                    "id": call_id,
+                    "type": "tool_call",
+                }
+            )
+            sig = getattr(part, "thought_signature", None)
+            if sig:
+                signatures[call_id] = base64.b64encode(sig).decode("ascii") if isinstance(sig, (bytes, bytearray)) else str(sig)
+        if not calls:
+            return None
+        return calls, signatures
+
     def _generate(
         self,
         messages: List[BaseMessage],
@@ -361,17 +489,25 @@ class GoogleGenAIChat(BaseChatModel):
     ) -> ChatResult:
         client = self._get_client()
         system_instruction, contents = self._format_contents(messages, **kwargs)
-        tools_bound = bool(kwargs.get("tools"))
+        raw_tools = kwargs.get("tools")
+        tools_bound = bool(raw_tools)
+        native_fc = self._use_native_fc(raw_tools)
         temp = kwargs.get("temperature", self.temperature)
         if tools_bound:
             temp = min(temp, 0.15)
 
-        generate_config = types.GenerateContentConfig(
+        config_kwargs: Dict[str, Any] = dict(
             system_instruction=system_instruction,
             temperature=temp,
             max_output_tokens=kwargs.get("max_tokens", 8192),
             stop_sequences=stop,
         )
+        if native_fc:
+            config_kwargs["tools"] = _openai_tools_to_gemini(raw_tools)
+            # We drive the tool loop through LangGraph, so the SDK must not try
+            # to execute functions itself.
+            config_kwargs["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
+        generate_config = types.GenerateContentConfig(**config_kwargs)
 
         last_exc: Optional[Exception] = None
         for attempt in range(self.max_retries):
@@ -381,8 +517,30 @@ class GoogleGenAIChat(BaseChatModel):
                     contents=contents,
                     config=generate_config,
                 )
-                ai_text = response.text or ""
-                message = self._to_ai_message(ai_text, tools_bound)
+                native = self._extract_native_tool_calls(response) if tools_bound else None
+                if native:
+                    native_calls, signatures = native
+                    extra = {"__gemini_thought_signatures": signatures} if signatures else {}
+                    message = AIMessage(content="", tool_calls=native_calls, additional_kwargs=extra)
+                else:
+                    message = self._to_ai_message(self._response_text(response), tools_bound)
+
+                # A Gemini response that produced neither text nor a usable
+                # function call (finish_reason MALFORMED_FUNCTION_CALL, or an
+                # empty candidate) would end the agent graph as if the model
+                # gave a final answer. Retry instead — it almost always
+                # succeeds on the next attempt.
+                if tools_bound and not message.content and not getattr(message, "tool_calls", None):
+                    finish_reason = None
+                    try:
+                        finish_reason = str(response.candidates[0].finish_reason)
+                    except (AttributeError, IndexError, TypeError):
+                        pass
+                    if os.getenv("LLM_DEBUG"):
+                        print(f"[LLM_DEBUG] empty tool-turn (finish_reason={finish_reason}) — attempt {attempt + 1}/{self.max_retries}")
+                    if attempt < self.max_retries - 1:
+                        time.sleep(_backoff(attempt))
+                        continue
                 return ChatResult(generations=[ChatGeneration(message=message)])
             except Exception as exc:
                 last_exc = exc

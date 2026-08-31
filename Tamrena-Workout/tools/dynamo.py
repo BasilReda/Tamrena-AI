@@ -6,6 +6,7 @@ the codebase so all agent tools and pipelines query MongoDB cleanly.
 """
 
 import os
+import re
 from decimal import Decimal
 from typing import Optional
 from pymongo import MongoClient
@@ -42,6 +43,64 @@ def _mongo_encode(value):
     return value
 
 
+_CMP_OPS = {
+    "=": lambda v: v,
+    "<>": lambda v: {"$ne": v},
+    ">": lambda v: {"$gt": v},
+    ">=": lambda v: {"$gte": v},
+    "<": lambda v: {"$lt": v},
+    "<=": lambda v: {"$lte": v},
+}
+
+
+def _parse_kv_expression(expr, values, names=None):
+    """Translate the small subset of DynamoDB Key/FilterExpression syntax this
+    codebase uses into a MongoDB filter dict.
+
+    Supported: ``field <op> :placeholder`` clauses joined by ``AND``, where
+    <op> is one of = <> < <= > >=, plus ``begins_with(field, :placeholder)``.
+    ``#alias`` attribute-name placeholders are resolved via ``names``.
+    Anything unrecognised is skipped (callers post-filter in Python) rather
+    than silently matching nothing.
+    """
+    names = names or {}
+    values = values or {}
+    mongo_filter: dict = {}
+    expr = (expr or "").strip()
+    if not expr:
+        return mongo_filter
+
+    for clause in expr.split(" AND "):
+        clause = clause.strip()
+        if not clause:
+            continue
+
+        if clause.lower().startswith("begins_with(") and clause.endswith(")"):
+            inner = clause[clause.index("(") + 1: -1]
+            field_tok, ph = (p.strip() for p in inner.split(",", 1))
+            field = names.get(field_tok, field_tok)
+            prefix = values.get(ph, ph)
+            mongo_filter[field] = {"$regex": f"^{re.escape(str(prefix))}"}
+            continue
+
+        matched_op = next(
+            (op for op in ("<>", ">=", "<=", "=", ">", "<") if f" {op} " in f" {clause} "),
+            None,
+        )
+        if not matched_op:
+            continue
+        lhs, rhs = (p.strip() for p in clause.split(matched_op, 1))
+        field = names.get(lhs, lhs)
+        value = values.get(rhs, rhs)
+        condition = _CMP_OPS[matched_op](value)
+        if field in mongo_filter and isinstance(mongo_filter[field], dict) and isinstance(condition, dict):
+            mongo_filter[field].update(condition)
+        else:
+            mongo_filter[field] = condition
+
+    return mongo_filter
+
+
 def get_mongo_client() -> MongoClient:
     global _mongo_client
     if _mongo_client is None:
@@ -57,9 +116,16 @@ def get_mongo_db():
 
 
 class MongoTableAdapter:
-    def __init__(self, collection_name: str):
+    def __init__(self, collection_name: str, primary_key: Optional[str] = None):
         self.table_name = collection_name
         self.collection_name = collection_name
+        # The item field that uniquely identifies a row (the DynamoDB
+        # partition key). put_item replaces the doc with the same value here.
+        # Set explicitly per table — the _get_pk() heuristic below is only a
+        # fallback and gets it wrong for tables that carry both a per-row id
+        # and a shared session_id/user_id (e.g. it would collapse every
+        # feedback row for a session into one document).
+        self.primary_key = primary_key
 
     @property
     def collection(self):
@@ -99,7 +165,7 @@ class MongoTableAdapter:
     def put_item(self, Item: dict) -> dict:
         item_copy = _mongo_encode(dict(Item))
         item_copy.pop("_id", None)
-        pk = self._get_pk(item_copy)
+        pk = self.primary_key or self._get_pk(item_copy)
         if pk in item_copy:
             self.collection.replace_one({pk: item_copy[pk]}, item_copy, upsert=True)
         else:
@@ -139,20 +205,9 @@ class MongoTableAdapter:
         ProjectionExpression: str = None,
         ExpressionAttributeNames: dict = None,
     ) -> dict:
-        filter_dict = {}
-        if ExpressionAttributeValues:
-            for k, v in ExpressionAttributeValues.items():
-                if k == ":uid":
-                    filter_dict["user_id"] = v
-                elif k == ":sid":
-                    filter_dict["previous_session_id"] = v
-                elif k == ":m":
-                    filter_dict["primary_muscle"] = v
-                elif k == ":mt":
-                    filter_dict["movement_type"] = v
-                else:
-                    clean_k = k.lstrip(":")
-                    filter_dict[clean_k] = v
+        filter_dict = _parse_kv_expression(
+            KeyConditionExpression, ExpressionAttributeValues, ExpressionAttributeNames
+        )
 
         sort_order = 1 if ScanIndexForward else -1
         cursor = self.collection.find(_mongo_encode(filter_dict), {"_id": 0})
@@ -167,8 +222,29 @@ class MongoTableAdapter:
         items = list(cursor)
         return {"Items": items, "Count": len(items)}
 
-    def scan(self) -> dict:
-        items = list(self.collection.find({}, {"_id": 0}))
+    def scan(
+        self,
+        FilterExpression: str = "",
+        ExpressionAttributeValues: dict = None,
+        ExpressionAttributeNames: dict = None,
+        ExclusiveStartKey: dict = None,
+        ProjectionExpression: str = None,
+        Limit: int = 0,
+        IndexName: str = None,
+        **_ignored,
+    ) -> dict:
+        """DynamoDB-style Scan with optional FilterExpression (see
+        ``_parse_kv_expression`` for the supported syntax). Mongo returns the
+        whole result set in one shot, so pagination (ExclusiveStartKey /
+        LastEvaluatedKey) is a no-op.
+        """
+        mongo_filter = _parse_kv_expression(
+            FilterExpression, ExpressionAttributeValues, ExpressionAttributeNames
+        )
+        cursor = self.collection.find(_mongo_encode(mongo_filter), {"_id": 0})
+        if Limit and Limit > 0:
+            cursor = cursor.limit(Limit)
+        items = list(cursor)
         return {"Items": items, "Count": len(items)}
 
     def delete_item(self, Key: dict) -> dict:
@@ -181,32 +257,34 @@ def get_resource():
 
 
 def get_plan_sessions_table():
-    return MongoTableAdapter(PLAN_SESSIONS_TABLE_NAME)
+    return MongoTableAdapter(PLAN_SESSIONS_TABLE_NAME, primary_key="session_id")
 
 
 def get_exercises_table():
-    return MongoTableAdapter(EXERCISES_TABLE_NAME)
+    return MongoTableAdapter(EXERCISES_TABLE_NAME, primary_key="exercise_id")
 
 
 def get_inbody_scans_table():
-    return MongoTableAdapter(INBODY_SCANS_TABLE_NAME)
+    return MongoTableAdapter(INBODY_SCANS_TABLE_NAME, primary_key="scan_id")
 
 
 def get_workout_feedback_table():
-    return MongoTableAdapter(WORKOUT_FEEDBACK_TABLE_NAME)
+    return MongoTableAdapter(WORKOUT_FEEDBACK_TABLE_NAME, primary_key="feedback_id")
 
 
 def get_corrective_results_table():
-    return MongoTableAdapter(CORRECTIVE_RESULTS_TABLE_NAME)
+    return MongoTableAdapter(CORRECTIVE_RESULTS_TABLE_NAME, primary_key="result_id")
 
 
 def get_progress_reports_table():
-    return MongoTableAdapter(PROGRESS_REPORTS_TABLE_NAME)
+    # PK is new_session_id (one report per monthly review) — see
+    # pipeline/monthly_progress.record_progress_report.
+    return MongoTableAdapter(PROGRESS_REPORTS_TABLE_NAME, primary_key="new_session_id")
 
 
 def get_plan_adjustments_table():
-    return MongoTableAdapter(PLAN_ADJUSTMENTS_TABLE_NAME)
+    return MongoTableAdapter(PLAN_ADJUSTMENTS_TABLE_NAME, primary_key="adjustment_id")
 
 
 def get_coach_messages_table():
-    return MongoTableAdapter(COACH_MESSAGES_TABLE_NAME)
+    return MongoTableAdapter(COACH_MESSAGES_TABLE_NAME, primary_key="message_id")
