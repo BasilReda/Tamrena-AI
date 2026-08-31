@@ -6,6 +6,7 @@ the codebase so all agent tools and pipelines query MongoDB cleanly.
 """
 
 import os
+from decimal import Decimal
 from typing import Optional
 from pymongo import MongoClient
 
@@ -21,6 +22,24 @@ from config import (
 )
 
 _mongo_client: Optional[MongoClient] = None
+
+
+def _mongo_encode(value):
+    """Recursively convert values BSON/pymongo cannot encode.
+
+    Much of this codebase still wraps floats in ``Decimal`` for the old
+    DynamoDB Number type (see ``pipeline/inbody_history._dec``). bson has no
+    Decimal codec, so every such write blew up with
+    ``InvalidDocument: cannot encode object: Decimal(...)``. Normalise
+    Decimal -> int/float on the way into MongoDB.
+    """
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, dict):
+        return {k: _mongo_encode(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_mongo_encode(v) for v in value]
+    return value
 
 
 def get_mongo_client() -> MongoClient:
@@ -78,7 +97,7 @@ class MongoTableAdapter:
         return {"Item": doc} if doc else {}
 
     def put_item(self, Item: dict) -> dict:
-        item_copy = dict(Item)
+        item_copy = _mongo_encode(dict(Item))
         item_copy.pop("_id", None)
         pk = self._get_pk(item_copy)
         if pk in item_copy:
@@ -105,7 +124,9 @@ class MongoTableAdapter:
                 set_fields[clean_k] = v
 
         if set_fields:
-            self.collection.update_one(Key, {"$set": set_fields}, upsert=True)
+            self.collection.update_one(
+                _mongo_encode(Key), {"$set": _mongo_encode(set_fields)}, upsert=True
+            )
         return {}
 
     def query(
@@ -134,7 +155,7 @@ class MongoTableAdapter:
                     filter_dict[clean_k] = v
 
         sort_order = 1 if ScanIndexForward else -1
-        cursor = self.collection.find(filter_dict, {"_id": 0})
+        cursor = self.collection.find(_mongo_encode(filter_dict), {"_id": 0})
         try:
             cursor = cursor.sort("created_at", sort_order)
         except Exception:
