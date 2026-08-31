@@ -44,7 +44,7 @@ from config import SESSION_DIR
 from pipeline.inbody_history import compare_latest_two, record_scan
 from pipeline.monthly_progress import build_monthly_summary, record_progress_report
 from pipeline.plan_finalize import enforce_volume_budget
-from pipeline.plan_parser import ParsedDay, parse_weekly_schedule
+from pipeline.plan_parser import ParsedDay, parse_weekly_schedule, synthesize_days_from_sections
 from services import live_progress
 from tools.inbody import check_image_quality, format_inbody_result, pdf_to_image_bytes, run_inbody_pipeline_from_bytes, validate_inbody_scan
 from tools.memory import read_all_exercise_adjustments, read_full_plan, read_progress_report, read_weekly_schedule
@@ -325,6 +325,12 @@ async def get_session_plan(session_id: str, user: dict = Depends(get_current_use
     if schedule is not None:
         full_content = read_full_plan(session_id) or schedule
         days = parse_weekly_schedule(full_content)
+        if not days:
+            # The Plan Assembler is dispatched by an LLM and occasionally
+            # gets skipped, leaving no parseable '## Weekly Schedule'. Rebuild
+            # the daily split deterministically from the DAY MAP + each
+            # exercise-recommender's own section so the user still gets a plan.
+            days = synthesize_days_from_sections(full_content)
 
         # Keyed by (day_label, lowercased ORIGINAL exercise name) — NOT by
         # new_exercise_name (see docstring above) and NOT by exercise name

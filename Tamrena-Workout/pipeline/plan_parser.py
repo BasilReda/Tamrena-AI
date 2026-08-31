@@ -244,3 +244,78 @@ def parse_weekly_schedule(full_plan_content: str) -> "list[ParsedDay]":
 
     parsed_days.sort(key=lambda d: d.day_number)
     return parsed_days
+
+
+# "1. Barbell Bench Press   4x8 | Rest 2-3 min | RPE 8-9"
+_MUSCLE_SECTION_EXERCISE = re.compile(
+    r"^\d+\.\s+(.+?)\s+(\d+)\s*[×xX]\s*(\d+(?:-\d+)?)\s*\|\s*Rest\s+([^|]+?)\s*\|\s*RPE\s+(\S+)\s*$"
+)
+_MUSCLE_SECTION_HEADING = re.compile(r"^##\s+([A-Za-z_]+)\s*[-–—]\s*(\S+)", re.IGNORECASE)
+
+
+def _exercises_for_muscle_section(full_content: str, muscle_id: str) -> "list[ParsedExercise]":
+    """Pull the numbered exercise list from the LAST ``## <muscle_id> - <zone>``
+    section in plan.md (the exercise-recommender's own output). Duplicate
+    sections happen when the Supervisor re-dispatches a group; the last one
+    wins, matching read_weekly_schedule's last-marker convention."""
+    lines = full_content.splitlines()
+    best: list[ParsedExercise] = []
+    i = 0
+    while i < len(lines):
+        m = _MUSCLE_SECTION_HEADING.match(lines[i].strip())
+        if not m or m.group(1).lower() != muscle_id.lower():
+            i += 1
+            continue
+        section: list[ParsedExercise] = []
+        j = i + 1
+        while j < len(lines):
+            s = lines[j].strip()
+            if s.startswith("## ") or s.startswith("### ") or s.startswith("---"):
+                break
+            ex = _MUSCLE_SECTION_EXERCISE.match(s)
+            if ex:
+                name, sets, reps, rest, rpe = ex.groups()
+                section.append(ParsedExercise(
+                    name=name.strip(),
+                    sets=int(sets),
+                    reps=reps,
+                    rest=rest.strip() or None,
+                    rpe=rpe.strip() or None,
+                    muscle_group=muscle_id,
+                ))
+            j += 1
+        if section:
+            best = section  # keep overwriting → last non-empty section wins
+        i = j
+    return best
+
+
+def synthesize_days_from_sections(full_plan_content: str) -> "list[ParsedDay]":
+    """Deterministic fallback for when the Plan Assembler never produced a
+    parseable ``## Weekly Schedule`` (the sub-agent is dispatched by an LLM
+    and does occasionally get skipped): rebuild the daily schedule straight
+    from the DAY MAP + each exercise-recommender's own ``## <muscle> - <zone>``
+    section. Everything needed is already in plan.md, so the user always gets
+    their plan even when the assembler flakes."""
+    day_map = parse_day_map(full_plan_content)
+    if not day_map:
+        return []
+
+    days: list[ParsedDay] = []
+    for day_num in sorted(day_map):
+        info = day_map[day_num]
+        muscles = info.get("muscles", [])
+        exercises: list[ParsedExercise] = []
+        for muscle in muscles:
+            exercises.extend(_exercises_for_muscle_section(full_plan_content, muscle))
+        if not exercises:
+            continue
+        pretty = ", ".join(m.replace("_", " ").title() for m in muscles)
+        days.append(ParsedDay(
+            day_number=day_num,
+            label=f"Day {day_num} — {pretty}" if pretty else f"Day {day_num}",
+            target_focus=", ".join(m.upper() for m in muscles),
+            warmup=None,
+            exercises=exercises,
+        ))
+    return days
