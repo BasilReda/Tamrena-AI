@@ -1,0 +1,25 @@
+# Multi-stage production build for React SPA
+FROM node:20-alpine AS build
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+
+# Only substitute our own var; nginx's built-in $host/$remote_addr/etc. must
+# survive the envsubst pass untouched (the base image runs this at startup).
+ENV NGINX_ENVSUBST_FILTER=^BACKEND_ORIGIN$
+# Placeholder so the container fails loudly instead of silently proxying
+# nowhere if BACKEND_ORIGIN isn't passed at `docker run` / compose time.
+ENV BACKEND_ORIGIN=http://backend-not-configured.invalid
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

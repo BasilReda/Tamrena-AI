@@ -1,0 +1,557 @@
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700;800&family=Tajawal:wght@500;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* ===== Backgrounds (dark — default) ===== */
+  --bg-page: #12161D;
+  --bg-dark: #12161D;
+  --bg-card: #1A2028;
+  --bg-card-hover: #212832;
+  --bg-input: #12161D;
+  --bg-surface: #1A2028;
+  --bg-glass: rgba(26, 32, 40, 0.85);
+
+  /* ===== Borders ===== */
+  --border: #262E39;
+  --border-strong: #37404D;
+  --border-glass: #262E39;
+  --border-glass-hover: #37404D;
+
+  /* ===== Primary accent — teal (1 primary action per screen) ===== */
+  --accent-primary: #3FBBA8;
+  --accent-primary-hover: #34A392;
+  --accent-primary-muted: #16302C;
+  --accent-primary-glow: rgba(63, 187, 168, 0.35);
+
+  /* ===== Category colors (fixed meaning — do not reassign) ===== */
+  --category-nutrition: #3FBBA8;   /* teal — nutrition/meal features */
+  --category-data: #6FA3C7;        /* steel blue — InBody scanning, data/analytics */
+  --category-motion: #F08769;      /* coral — live CV tracking, real-time/motion features */
+  --category-ai: #F0CE7A;          /* gold — AI reasoning, multi-agent, plan generation */
+
+  /* Legacy & semantic variable aliases kept for existing components */
+  --accent-cyan: #6FA3C7;
+  --accent-teal: #3FBBA8;
+  --accent-slate: #6B7484;
+  --accent-emerald: #3FBBA8;
+  --accent-amber: #F08769;
+  --accent-rose: #E5484D;
+  --accent-purple: #F0CE7A;
+
+  /* ===== Text ===== */
+  --text-heading: #F5F1EA;
+  --text-primary: #F5F1EA;
+  --text-body: #A7B0C0;
+  --text-secondary: #A7B0C0;
+  --text-muted: #6B7484;
+  --text-on-accent: #06251F;
+
+  /* ===== Status colors (standard semantic use only) ===== */
+  --status-success: #3FBBA8;
+  --status-warning: #F0CE7A;
+  --status-error: #E5484D;
+  --status-info: #6FA3C7;
+
+  /* ===== Fonts ===== */
+  --font-display: 'Newsreader', 'Georgia', serif;
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
+  --shadow-emerald: 0 0 20px rgba(63, 187, 168, 0.25);
+  --shadow-cyan: 0 0 20px rgba(111, 163, 199, 0.2);
+  --shadow-amber: 0 0 20px rgba(240, 135, 105, 0.2);
+  --shadow-purple: 0 0 20px rgba(240, 206, 122, 0.2);
+
+  --radius-xl: 16px;
+  --radius-lg: 12px;
+  --radius-md: 8px;
+  --radius-sm: 6px;
+}
+
+/* ===== Light theme override ===== */
+:root[data-theme='light'] {
+  --bg-page: #FAF9F6;
+  --bg-dark: #FAF9F6;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F3F1E9;
+  --bg-input: #FBFAF7;
+  --bg-surface: #FFFFFF;
+  --bg-glass: rgba(255, 255, 255, 0.85);
+
+  --border: #E7E2D6;
+  --border-strong: #D8D1C0;
+  --border-glass: #E7E2D6;
+  --border-glass-hover: #D8D1C0;
+
+  --accent-primary: #2A9D8F;
+  --accent-primary-hover: #24897C;
+  --accent-primary-muted: #E3F3F0;
+  --accent-primary-glow: rgba(42, 157, 143, 0.25);
+
+  --category-nutrition: #2A9D8F;
+  --category-data: #457B9D;
+  --category-motion: #E76F51;
+  --category-ai: #C99A2E;
+
+  --accent-cyan: #457B9D;
+  --accent-teal: #2A9D8F;
+  --accent-slate: #8B93A0;
+  --accent-emerald: #2A9D8F;
+  --accent-amber: #E76F51;
+  --accent-rose: #D33B3B;
+  --accent-purple: #C99A2E;
+
+  --text-heading: #1D3557;
+  --text-primary: #1D3557;
+  --text-body: #5B6472;
+  --text-secondary: #5B6472;
+  --text-muted: #8B93A0;
+  --text-on-accent: #FFFFFF;
+
+  --status-success: #2A9D8F;
+  --status-warning: #C99A2E;
+  --status-error: #D33B3B;
+  --status-info: #457B9D;
+
+  --shadow-sm: 0 2px 8px rgba(29, 53, 87, 0.08);
+  --shadow-lg: 0 10px 30px -5px rgba(29, 53, 87, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-page);
+  color: var(--text-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  min-height: 100vh;
+  width: 100%;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+[lang='ar'] body,
+[lang='ar'] {
+  font-family: 'Tajawal', var(--font-sans);
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+}
+
+[lang='ar'] h1, [lang='ar'] h2, [lang='ar'] h3 {
+  font-family: 'Tajawal', var(--font-sans);
+}
+
+/* Background Ambient Glows — softened to match the calmer brand direction */
+body::before {
+  content: '';
+  position: fixed;
+  top: -10%;
+  left: 20%;
+  width: min(580px, 90vw);
+  height: min(580px, 90vw);
+  background: radial-gradient(circle, var(--accent-primary-glow) 0%, rgba(0, 0, 0, 0) 70%);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 0;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  bottom: 10%;
+  right: 15%;
+  width: min(680px, 90vw);
+  height: min(680px, 90vw);
+  background: radial-gradient(circle, rgba(240, 135, 105, 0.08) 0%, rgba(0, 0, 0, 0) 70%);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-page);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-primary);
+}
+
+/* Base Glass & Card Containers */
+.glass-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel:hover {
+  border-color: var(--border-strong);
+}
+
+.glass-card-interactive {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.glass-card-interactive:hover {
+  transform: translateY(-2px);
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Button UI Components */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: var(--text-on-accent) !important;
+  box-shadow: 0 2px 12px var(--accent-primary-glow);
+}
+
+.btn-primary:hover {
+  background: var(--accent-primary-hover);
+  box-shadow: 0 4px 18px var(--accent-primary-glow);
+}
+
+.btn-cyan {
+  background: var(--accent-primary);
+  color: var(--text-on-accent) !important;
+  box-shadow: 0 2px 12px var(--accent-primary-glow);
+}
+
+.btn-cyan:hover {
+  background: var(--accent-primary-hover);
+}
+
+.btn-teal {
+  background: var(--accent-primary);
+  color: var(--text-on-accent) !important;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-heading);
+  border: 1px solid var(--border-strong);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-strong);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+}
+
+.btn-outline:hover {
+  background: var(--accent-primary-muted);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Theme / language toggle pill */
+.chrome-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-heading);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chrome-toggle-btn:hover {
+  border-color: var(--border-strong);
+}
+
+/* Badges with fixed category meaning */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge-primary, .badge-nutrition, .badge-emerald {
+  background: var(--accent-primary-muted);
+  color: var(--category-nutrition);
+  border: 1px solid color-mix(in srgb, var(--category-nutrition) 35%, transparent);
+}
+
+.badge-data, .badge-blue, .badge-cyan {
+  background: color-mix(in srgb, var(--category-data) 15%, transparent);
+  color: var(--category-data);
+  border: 1px solid color-mix(in srgb, var(--category-data) 35%, transparent);
+}
+
+.badge-motion, .badge-amber, .badge-orange {
+  background: color-mix(in srgb, var(--category-motion) 15%, transparent);
+  color: var(--category-motion);
+  border: 1px solid color-mix(in srgb, var(--category-motion) 35%, transparent);
+}
+
+.badge-ai, .badge-purple {
+  background: color-mix(in srgb, var(--category-ai) 20%, transparent);
+  color: var(--category-ai);
+  border: 1px solid color-mix(in srgb, var(--category-ai) 40%, transparent);
+}
+
+.badge-slate {
+  background: color-mix(in srgb, var(--text-muted) 15%, transparent);
+  color: var(--text-body);
+  border: 1px solid var(--border);
+}
+
+.badge-rose {
+  background: color-mix(in srgb, var(--status-error) 15%, transparent);
+  color: var(--status-error);
+  border: 1px solid color-mix(in srgb, var(--status-error) 35%, transparent);
+}
+
+/* Inputs & Form Controls */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+.form-input, .form-select, .form-textarea {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  color: var(--text-heading);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  border-color: var(--border-strong);
+  background: var(--bg-card);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+/* Metric Display Utility */
+.metric-val {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-heading);
+}
+
+/* Accent text — solid color, not gradient (gradient text on headings reads as decorative filler) */
+.gradient-text-primary, .gradient-text-emerald, .gradient-text-teal {
+  color: var(--accent-primary);
+}
+
+.gradient-text-cyan, .gradient-text-data {
+  color: var(--category-data);
+}
+
+.gradient-text-ai, .gradient-text-purple {
+  color: var(--category-ai);
+}
+
+.gradient-text-motion, .gradient-text-orange {
+  color: var(--category-motion);
+}
+
+/* Card Glows */
+.glow-card-cyan, .glow-card-primary, .glow-card-emerald, .glow-card-teal {
+  border: 1px solid var(--border);
+}
+
+.glow-card-cyan:hover, .glow-card-primary:hover, .glow-card-emerald:hover, .glow-card-teal:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 20px var(--accent-primary-glow);
+}
+
+/* Section Containers */
+.public-section {
+  padding: clamp(36px, 6vw, 80px) clamp(16px, 4vw, 24px);
+  max-width: 1240px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+}
+
+/* Feature Matrix Table */
+.matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.matrix-table th, .matrix-table td {
+  padding: clamp(12px, 2.5vw, 16px) clamp(12px, 2.5vw, 20px);
+  border-bottom: 1px solid var(--border);
+}
+
+.matrix-table th {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-body);
+  background: var(--bg-card);
+}
+
+.matrix-table tr:hover td {
+  background: var(--bg-card-hover);
+}
+
+/* FAQ Item */
+.faq-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.faq-item:hover {
+  border-color: var(--border-strong);
+}
+
+.faq-question {
+  padding: 18px 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text-heading);
+  user-select: none;
+}
+
+.faq-answer {
+  padding: 0 22px 18px;
+  color: var(--text-body);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Navlink Hover Pill */
+.nav-pill-link {
+  color: var(--text-body);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 9999px;
+  transition: all 0.2s ease;
+}
+
+.nav-pill-link:hover {
+  color: var(--text-heading);
+  background: var(--bg-card-hover);
+}
+
+.nav-pill-link.active {
+  color: var(--accent-primary);
+  background: var(--accent-primary-muted);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
+}
+
+/* Shimmer Animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-card-hover) 50%, var(--bg-card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite;
+}
+
+/* Responsive Utilities */
+@media (max-width: 640px) {
+  .btn {
+    padding: 9px 16px;
+    font-size: 13px;
+  }
+  .form-input, .form-select {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+}

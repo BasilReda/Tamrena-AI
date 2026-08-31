@@ -1,0 +1,553 @@
+# Part 2 - Core Components Specification
+
+This section describes every component participating in the nutrition planning workflow.
+
+Unlike traditional Multi-Agent systems where every node is an LLM Agent, our architecture combines **LLM Agents**, **Deterministic Services**, and **Validation Engines**.
+
+Each component is responsible for one well-defined task, following the **Single Responsibility Principle (SRP)**.
+
+---
+
+# System Components
+
+The nutrition planning workflow consists of seven main components.
+
+```
+
+```
+                        Orchestrator
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼
+ Profile Agent       Calories Calculator    Macro Calculator
+        │                     │                     │
+        └─────────────────────┼─────────────────────┘
+                              ▼
+                  Food Retrieval Service
+                              │
+                              ▼
+                 Meal Composition Agent
+                              │
+                              ▼
+              Nutrition Validation Engine
+                              │
+                   ┌──────────┴──────────┐
+                   ▼                     ▼
+            Validation Pass      Validation Failed
+                   │                     │
+                   ▼                     │
+            Explanation Agent           │
+                   │                     │
+                   └──────────────► Retry
+```
+
+---
+
+# Component Categories
+
+Instead of making everything an Agent, components are divided into three categories.
+
+| Category | Components |
+|-----------|------------|
+| AI Agents | Profile Agent, Meal Composition Agent, Explanation Agent |
+| Intelligent Services | Food Retrieval Service |
+| Deterministic Engines | Calories Calculator, Macro Calculator, Nutrition Validation Engine |
+
+This architecture significantly reduces LLM usage while improving reliability.
+
+---
+
+# 1. Orchestrator
+
+## Description
+
+The Orchestrator is responsible for managing the complete execution workflow.
+
+It does **not** perform nutritional reasoning.
+
+Instead, it coordinates every component and controls the execution graph.
+
+---
+
+## Responsibilities
+
+- Execute LangGraph workflow
+- Manage execution order
+- Pass outputs between components
+- Handle retries
+- Handle failures
+- Publish streaming events
+- Return final response
+
+---
+
+## Input
+
+```python
+GenerateNutritionRequest
+```
+
+---
+
+## Output
+
+```python
+NutritionPlanResponse
+```
+
+---
+
+## Uses LLM
+
+No
+
+---
+
+# 2. Profile Agent
+
+## Description
+
+The Profile Agent analyzes the user's profile and transforms raw user information into a structured nutrition profile.
+
+Unlike other agents, it performs lightweight reasoning using an LLM to normalize goals and interpret natural language preferences.
+
+Example:
+
+```
+Goal:
+"I want to lose fat while keeping muscle."
+```
+
+↓
+
+```
+Goal:
+Fat Loss
+```
+
+---
+
+## Responsibilities
+
+- Validate profile
+- Normalize user goals
+- Interpret preferences
+- Interpret allergies
+- Detect dietary restrictions
+- Build Nutrition Profile
+
+---
+
+## Input
+
+```python
+UserProfile
+```
+
+---
+
+## Output
+
+```python
+NutritionProfile
+```
+
+---
+
+## Uses LLM
+
+Yes
+
+---
+
+# 3. Calories Calculator
+
+## Description
+
+This component calculates the user's daily caloric requirements.
+
+Unlike an AI Agent, it performs deterministic scientific calculations.
+
+No LLM is involved.
+
+---
+
+## Responsibilities
+
+- Calculate BMR
+- Calculate TDEE
+- Apply activity multiplier
+- Apply fitness goal adjustment
+
+Supported formulas:
+
+- Mifflin-St Jeor
+- Harris-Benedict
+
+---
+
+## Input
+
+```python
+NutritionProfile
+```
+
+---
+
+## Output
+
+```python
+CaloriesResult
+```
+
+---
+
+## Uses LLM
+
+No
+
+---
+
+# 4. Macro Calculator
+
+## Description
+
+Calculates daily macronutrient targets.
+
+The calculation follows predefined nutritional rules.
+
+---
+
+## Responsibilities
+
+Calculate
+
+- Protein
+- Fat
+- Carbohydrates
+
+based on
+
+- Calories
+- Goal
+- Body Weight
+
+---
+
+## Input
+
+```python
+CaloriesResult
+```
+
+---
+
+## Output
+
+```python
+MacroResult
+```
+
+---
+
+## Uses LLM
+
+No
+
+---
+
+# 5. Food Retrieval Service
+
+## Description
+
+The Retrieval Service searches the food database and returns food candidates matching the nutritional requirements.
+
+The LLM never directly accesses the database.
+
+---
+
+## Responsibilities
+
+Search foods using
+
+- Calories
+- Protein
+- Fat
+- Carbohydrates
+- Meal Type
+- Food Group
+- Allergies
+- User Preferences
+
+---
+
+## Data Source
+
+Master Food Database
+
+---
+
+## Technologies
+
+- PostgreSQL
+- SQLAlchemy
+- Metadata Filtering
+
+---
+
+## Input
+
+```python
+RetrievalRequest
+```
+
+---
+
+## Output
+
+```python
+RetrievedFoods
+```
+
+---
+
+## Uses LLM
+
+No
+
+---
+
+# 6. Meal Composition Agent
+
+## Description
+
+This is the primary reasoning agent in the system.
+
+It receives nutritional constraints and candidate foods, then generates a realistic daily meal plan.
+
+The agent **does not invent nutritional values**.
+
+Instead, it selects from foods already retrieved by the Retrieval Service.
+
+---
+
+## Responsibilities
+
+Compose
+
+- Breakfast
+- Lunch
+- Dinner
+- Snacks
+
+while satisfying
+
+- Calories
+- Protein
+- Fat
+- Carbohydrates
+- User Preferences
+- Egyptian Cuisine
+- Meal Variety
+
+---
+
+## Input
+
+```python
+MealCompositionInput
+```
+
+---
+
+## Output
+
+```python
+MealPlan
+```
+
+---
+
+## Uses LLM
+
+Yes
+
+---
+
+# 7. Nutrition Validation Engine
+
+## Description
+
+The Validation Engine verifies that the generated meal plan satisfies all nutritional constraints.
+
+Validation is deterministic.
+
+No AI reasoning is used.
+
+---
+
+## Validation Rules
+
+- Calories tolerance
+- Protein tolerance
+- Carbohydrate tolerance
+- Fat tolerance
+- Allergy detection
+- Meal completeness
+- Dietary restrictions
+
+---
+
+## Output
+
+```python
+ValidationReport
+```
+
+---
+
+## Possible Results
+
+PASS
+
+FAIL
+
+---
+
+## Uses LLM
+
+No
+
+---
+
+# Retry Strategy
+
+If validation fails:
+
+```
+Meal Composition
+
+↓
+
+Validation
+
+↓
+
+FAIL
+
+↓
+
+Return Validation Report
+
+↓
+
+Orchestrator
+
+↓
+
+Retry Meal Composition
+```
+
+Only the Meal Composition Agent is re-executed.
+
+Calculators are not executed again.
+
+---
+
+# 8. Explanation Agent
+
+## Description
+
+Generates a human-readable explanation for the generated meal plan.
+
+The explanation improves transparency and user trust.
+
+---
+
+## Responsibilities
+
+Explain
+
+- Why foods were selected
+- How calories were determined
+- How macros were balanced
+- Tips for adherence
+
+---
+
+## Input
+
+```python
+MealPlan
+
++
+
+ValidationReport
+```
+
+---
+
+## Output
+
+```python
+Explanation
+```
+
+---
+
+## Uses LLM
+
+Yes
+
+---
+
+# Component Dependency Graph
+
+```
+Profile Agent
+      │
+      ▼
+Calories Calculator
+      │
+      ▼
+Macro Calculator
+      │
+      ▼
+Food Retrieval Service
+      │
+      ▼
+Meal Composition Agent
+      │
+      ▼
+Validation Engine
+      │
+      ├─────────────── PASS ───────────────┐
+      │                                    ▼
+      └──── FAIL ─────► Meal Composition Agent
+                                           │
+                                           ▼
+                                 Explanation Agent
+                                           │
+                                           ▼
+                                    Final Response
+```
+
+---
+
+# Design Decisions
+
+| Decision | Reason |
+|----------|--------|
+| Rule-based calculations | Higher accuracy and deterministic outputs |
+| Retrieval before generation | Reduce hallucinations |
+| Validation before response | Guarantee nutritional correctness |
+| LLM only for reasoning | Lower cost and improved consistency |
+| Independent components | Easier testing and maintenance |
+
+---
+
+# Next Section
+
+The next document describes how these components are implemented using **LangGraph**, including nodes, edges, state transitions, conditional routing, and execution flow.
+
+➡ **05_LangGraph_Implementation.md**

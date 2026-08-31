@@ -1,0 +1,10 @@
+services:
+  # Local-testing override: point at the other three services running in
+  # their own docker-compose projects on the host instead of the prod IPs
+  # baked into docker-compose.yml. host.docker.internal resolves to the
+  # host machine from inside a container on Docker Desktop.
+  backend:
+    environment:
+      WORKOUT_API_URL: http://host.docker.internal:8001
+      CV_API_URL: http://host.docker.internal:8002
+      NUTRITION_API_URL: http://host.docker.internal:8000

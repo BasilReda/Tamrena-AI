@@ -1,0 +1,12 @@
+.claude/
+database/
+sessions/
+.env
+data/
+tests/__pycache__/
+__pycache__/
+.superdesign
+.pytest_cache
+.worktrees/
+.superpowers
+docs/

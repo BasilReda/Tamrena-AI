@@ -1,0 +1,233 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Tamrena-AI — full project stack
+#
+# Topology:
+#   web-frontend ──▶ web-backend (BFF) ──▶ tamrena-workout   (workout AI)
+#                                     ├──▶ nutrition-api      (nutrition AI)
+#                                     └──▶ cv-backend         (computer-vision AI)
+#   all services ──▶ mongodb
+#
+# Only the website ships a frontend. The workout / nutrition / computer-vision
+# services are backend-only here — their own frontends are out of scope and the
+# website's frontend is the single UI for the whole platform.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ─── Database (MongoDB) ───────────────────────────────────────────────────
+  # No HTTP API. Wire protocol on 27017.
+  mongodb:
+    image: mongo:6.0
+    container_name: tamrena-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=tamrena
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ─── Workout AI Service ──────────────────────────────────────────────────
+  # Base URL: http://localhost:8001   (in-network: http://tamrena-workout:8001)
+  # Endpoints:
+  #   GET  /health
+  #   POST /auth/...                         (auth router)
+  #   POST /validate-image                   (InBody scan image check)
+  #   POST /generate-plan
+  #   GET  /generate-plan/stream/{session_id}   (SSE)
+  #   GET  /sessions
+  #   GET  /sessions/{session_id}/plan
+  #   POST /plan/{session_id}/monthly-review
+  #   GET  /progress/scans
+  #   GET  /progress/comparison
+  #   GET  /progress/{session_id}/report
+  #   POST /workouts/{session_id}/feedback
+  #   POST /workouts/{session_id}/corrective-results
+  #   GET  /exercises
+  #   GET  /exercises/lookup
+  #   POST /inbody/parse
+  #   GET  /inbody/{user_id}/latest
+  #   POST /workout/generate
+  #   GET  /workout/{session_id}
+  #   POST /nutrition/generate
+  #   GET  /nutrition/{user_id}
+  #   POST /telemetry/sync
+  #   GET  /telemetry/{user_id}
+  #   POST /feedback/submit
+  #   GET  /feedback/{user_id}
+  #   POST /reports/monthly
+  #   GET  /reports/{report_id}
+  #   POST /coach/chat
+  #   GET  /coach/history
+  tamrena-workout:
+    build:
+      context: ./Tamrena-Workout
+      dockerfile: Dockerfile
+    container_name: tamrena-workout-api
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./Tamrena-Workout/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/tamrena
+      - MONGO_URI=mongodb://mongodb:27017/tamrena
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./Tamrena-Workout/sessions:/app/sessions
+      - workout_rag_models:/app/data/models
+
+  # ─── Nutrition AI Service ────────────────────────────────────────────────
+  # Base URL: http://localhost:8000   (in-network: http://nutrition-api:8000)
+  # All /api/v1/nutrition/* routes require the internal service auth header.
+  # Endpoints:
+  #   GET    /health
+  #   GET    /api/v1/health
+  #   POST   /api/v1/nutrition/generate
+  #   GET    /api/v1/nutrition/stream/{run_id}     (SSE)
+  #   GET    /api/v1/nutrition/result/{run_id}
+  #   GET    /api/v1/nutrition/history
+  #   GET    /api/v1/nutrition/{run_id}            (result alias)
+  #   DELETE /api/v1/nutrition/{run_id}
+  nutrition-api:
+    build:
+      context: ./Nutrition-Plan-Generation
+      dockerfile: Dockerfile
+    container_name: nutrition-plan-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./Nutrition-Plan-Generation/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/tamrena
+      - MONGO_URI=mongodb://mongodb:27017/tamrena
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./Nutrition-Plan-Generation/DataPrep/usedData:/app/DataPrep/usedData:ro
+
+  # ─── Computer Vision Service (backend only) ───────────────────────────────
+  # Base URL: http://localhost:8002   (in-network: http://cv-backend:8000)
+  # All /api/* REST routes require the internal service auth header.
+  # Endpoints:
+  #   GET    /api/health
+  #   GET    /api/exercises
+  #   GET    /api/exercises/{key}
+  #   GET    /api/sessions
+  #   GET    /api/sessions/{session_id}
+  #   DELETE /api/sessions/{session_id}
+  #   GET    /api/settings
+  #   PUT    /api/settings
+  #   GET    /api/uploads
+  #   POST   /api/uploads
+  #   DELETE /api/uploads/{upload_id}
+  #   GET    /api/downloads/rendered/{name}
+  #   WS     /ws/live                              (live pose tracking)
+  cv-backend:
+    build:
+      context: ./Computer-Vision
+      dockerfile: Dockerfile
+    container_name: tamrena-cv-backend
+    ports:
+      - "8002:8000"
+    env_file:
+      - ./Computer-Vision/.env
+    environment:
+      - MODEL_PATH=assets/models/pose_landmarker_full.task
+      - EXPORT_SESSION=true
+      - EXPORT_FORMAT=json
+      - EXPORT_DIR=output/sessions
+      - MONGODB_URI=mongodb://mongodb:27017/tamrena
+      - MONGO_URI=mongodb://mongodb:27017/tamrena
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./Computer-Vision/output:/app/output
+      - ./Computer-Vision/uploads:/app/uploads
+
+  # ─── Website — Backend (BFF) ─────────────────────────────────────────────
+  # Base URL: http://localhost:8010   (in-network: http://web-backend:8000)
+  # Aggregates the three AI services behind one authenticated API for the web
+  # frontend. Endpoints:
+  #   GET  /api/health
+  #   POST /api/auth/signup
+  #   POST /api/auth/login
+  #   GET  /api/auth/me
+  #   GET  /api/progress/scans
+  #   GET  /api/progress/comparison
+  #   GET  /api/progress/{session_id}/report
+  #   POST /api/progress/{session_id}/monthly-review
+  #   GET  /api/exercises
+  #   GET  /api/exercises/lookup
+  #   GET  /api/exercises/cv
+  #   GET  /api/workout/sessions
+  #   GET  /api/workout/sessions/{session_id}/plan
+  #   POST /api/workout/feedback/{session_id}
+  #   POST /api/workout/validate-image
+  #   POST /api/workout/generate-plan
+  #   GET  /api/workout/generate-plan/stream/{session_id}   (SSE)
+  #   POST /api/live-session/upload
+  #   GET  /api/live-session/report/{session_id}
+  #   POST /api/live-session/result
+  #   POST /api/nutrition/generate
+  #   GET  /api/nutrition/last
+  #   GET  /api/nutrition/result/{run_id}
+  #   GET  /api/nutrition/stream/{run_id}                   (SSE)
+  #   POST /api/coach/chat
+  #   GET  /api/coach/history
+  web-backend:
+    build:
+      context: ./tamreena-web/backend
+      dockerfile: Dockerfile
+    container_name: tamreena-web-backend
+    ports:
+      - "8010:8000"
+    env_file:
+      - ./tamreena-web/.env
+    environment:
+      - WORKOUT_API_URL=http://tamrena-workout:8001
+      - NUTRITION_API_URL=http://nutrition-api:8000
+      - CV_API_URL=http://cv-backend:8000
+      - MONGODB_URI=mongodb://mongodb:27017/tamrena
+      - MONGO_URI=mongodb://mongodb:27017/tamrena
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      tamrena-workout:
+        condition: service_started
+      nutrition-api:
+        condition: service_started
+      cv-backend:
+        condition: service_started
+    restart: unless-stopped
+
+  # ─── Website — Frontend (React + Vite) ───────────────────────────────────
+  # URL: http://localhost:5174   (talks to web-backend at http://localhost:8010)
+  # The only user-facing UI in the stack.
+  web-frontend:
+    build:
+      context: ./tamreena-web/frontend
+      dockerfile: Dockerfile
+    container_name: tamreena-web-frontend
+    ports:
+      - "5174:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8010
+    depends_on:
+      - web-backend
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  workout_rag_models:

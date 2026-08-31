@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+boto3
+pyjwt
+bcrypt
+python-dotenv
+pydantic
+pytest
+moto[dynamodb]
+httpx
+respx
+python-multipart
+websockets
+pymongo
+

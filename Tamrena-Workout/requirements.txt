@@ -1,0 +1,39 @@
+# ── LLM & Agent Framework ─────────────────────────────────────
+google-genai
+langchain-openai
+langchain
+deepagents
+python-dotenv
+
+# ── API Layer ─────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+python-multipart
+
+# ── AWS ────────────────────────────────────────────────────────
+boto3
+
+# ── InBody VLM pipeline ───────────────────────────────────────
+opencv-python
+pymupdf
+numpy
+pydantic
+
+# ── Monitoring ────────────────────────────────────────────────
+langsmith
+
+# ── Auth ──────────────────────────────────────────────────────
+google-auth
+pyjwt
+
+# Dev/notebook-only extras (ipykernel, ipywidgets, ...) are in
+# requirements-dev.txt, not here.
+
+# ── RAG retrieval (tools/rag/) ────────────────────────────────
+# qdrant-client pinned to 1.18.0: older versions cannot load the ingested rag_data/qdrant
+# collections (raise ValidationError on metadata field in CreateCollection schema).
+qdrant-client==1.18.0
+sentence-transformers==4.0.1
+fastembed==0.7.1
+pymongo
+

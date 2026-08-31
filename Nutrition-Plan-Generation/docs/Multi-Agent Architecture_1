@@ -1,0 +1,466 @@
+# Multi-Agent Architecture
+
+> **Document Version:** 1.0.0  
+> **Status:** Design Phase  
+> **Related Documents**
+>
+> - 01_Project_Overview.md
+> - 02_System_Architecture.md
+
+---
+
+# 1. Introduction
+
+The Nutrition AI System adopts a **Multi-Agent Architecture** to decompose the complex task of personalized nutrition planning into smaller, specialized AI agents.
+
+Instead of relying on a single Large Language Model (LLM) to perform every task, each agent is designed with a single responsibility, making the system easier to maintain, validate, scale, and extend.
+
+Each agent focuses on solving one specific problem and communicates with other agents through well-defined contracts orchestrated by LangGraph.
+
+---
+
+# 2. Why Multi-Agent?
+
+Generating a personalized nutrition plan requires multiple reasoning steps.
+
+For example:
+
+- Understanding the user's profile
+- Calculating calories
+- Computing macronutrients
+- Selecting foods
+- Building meals
+- Validating nutrition
+- Explaining recommendations
+
+Asking one LLM to perform all these tasks increases:
+
+- Hallucinations
+- Inconsistent calculations
+- Poor explainability
+- Difficult debugging
+
+Instead, the system distributes these responsibilities across specialized AI agents.
+
+---
+
+# 3. Architecture Philosophy
+
+The system follows five fundamental principles.
+
+## 3.1 Single Responsibility
+
+Every AI agent solves one problem only.
+
+Examples:
+
+- Calories Agent only calculates calories.
+- Macro Agent only calculates macronutrients.
+- Validation Agent only validates.
+
+No agent performs multiple unrelated responsibilities.
+
+---
+
+## 3.2 Loose Coupling
+
+Agents never access each other's internal logic.
+
+Instead they exchange structured outputs.
+
+```
+Agent A
+
+↓
+
+Structured Output
+
+↓
+
+Orchestrator
+
+↓
+
+Structured Input
+
+↓
+
+Agent B
+```
+
+This makes every component reusable.
+
+---
+
+## 3.3 Retrieval Before Generation
+
+The LLM never invents nutritional values.
+
+Instead:
+
+```
+Food Database
+
+↓
+
+Food Retrieval Agent
+
+↓
+
+Relevant Foods
+
+↓
+
+LLM
+
+↓
+
+Meal Plan
+```
+
+This significantly reduces hallucinations.
+
+---
+
+## 3.4 Validation Before Response
+
+Every generated meal plan must pass a validation phase before being returned.
+
+Validation includes:
+
+- Calories
+- Protein
+- Carbohydrates
+- Fat
+- Allergies
+- Dietary Restrictions
+- Meal Constraints
+
+Only validated plans are returned to the user.
+
+---
+
+## 3.5 Explainable AI
+
+Every recommendation should include reasoning.
+
+Instead of returning:
+
+> Eat Chicken and Rice.
+
+The system explains:
+
+> Chicken was selected because it provides a high amount of lean protein while remaining within your calorie target.
+
+---
+
+# 4. High-Level Agent Workflow
+
+```
+                        User
+                          │
+                          ▼
+                  Nutrition API
+                          │
+                          ▼
+                  Orchestrator Agent
+                          │
+      ┌───────────────────┼────────────────────┐
+      ▼                   ▼                    ▼
+ Profile Agent(Hybrid)     Calories Agent(Macro Calculator) Macro Agent(Rule-Based)
+      │                   │                    │
+      └───────────────────┼────────────────────┘
+                          ▼
+                Food Retrieval Agent(Pure Python)
+                          │
+                          ▼
+              Nutrition Planning Agent
+                          │
+                          ▼
+                 Validation Agent
+                          │
+               ┌──────────┴───────────┐
+               │                      │
+               ▼                      ▼
+          Validation Pass      Validation Failed
+               │                      │
+               ▼                      │
+      Explanation Agent               │
+               │                      │
+               └──────────────┬───────┘
+                              ▼
+                    Personalized Meal Plan
+```
+
+---
+
+# 5. Orchestrator Agent
+
+The Orchestrator Agent is the brain of the entire workflow.
+
+It does **not** generate meal plans.
+
+Instead, it manages the execution of all specialized agents.
+
+Responsibilities include:
+
+- Building execution context
+- Invoking LangGraph nodes
+- Passing outputs between agents
+- Handling retries
+- Managing failures
+- Publishing streaming events
+- Returning the final response
+
+The Orchestrator never performs nutritional reasoning.
+
+---
+
+# 6. Communication Model
+
+Agents communicate using typed contracts.
+
+No agent directly calls another agent.
+
+Instead:
+
+```
+Profile Agent
+
+↓
+
+ProfileResult
+
+↓
+
+Orchestrator
+
+↓
+
+Calories Agent
+
+↓
+
+CaloriesResult
+
+↓
+
+Orchestrator
+
+↓
+
+Macro Agent
+```
+
+This approach makes agents independent.
+
+---
+
+# 7. State Management Strategy
+
+Unlike traditional LangGraph examples that rely on one global state object, this project adopts a **Modular State Architecture**.
+
+Each agent owns its own state model.
+
+Example:
+
+```
+ProfileState
+
+↓
+
+CaloriesState
+
+↓
+
+MacroState
+
+↓
+
+RetrievalState
+
+↓
+
+PlanningState
+
+↓
+
+ValidationState
+
+↓
+
+ExplanationState
+```
+
+Each state contains only the information required for that specific agent.
+
+The Orchestrator transforms outputs into the input model required by the next agent.
+
+Benefits include:
+
+- Better modularity
+- Easier unit testing
+- Lower coupling
+- Easier future expansion
+- Clear ownership of data
+
+---
+
+# 8. Agent Communication Contract
+
+Every agent follows the same execution pattern.
+
+```
+Input Model
+
+↓
+
+Validation
+
+↓
+
+Business Logic
+
+↓
+
+Tools
+
+↓
+
+LLM (Optional)
+
+↓
+
+Output Model
+```
+
+This standardization ensures consistency across all agents.
+
+---
+
+# 9. Standard Agent Lifecycle
+
+Each agent executes the following lifecycle:
+
+```
+Receive Input
+
+↓
+
+Validate Input
+
+↓
+
+Execute Logic
+
+↓
+
+Call Tools (if needed)
+
+↓
+
+Generate Output
+
+↓
+
+Validate Output
+
+↓
+
+Return Typed Result
+```
+
+No agent directly writes into the database.
+
+Persistence is handled by the application layer.
+
+---
+
+# 10. Streaming Execution
+
+Each agent emits lifecycle events during execution.
+
+Example:
+
+```
+Profile Agent Started
+
+↓
+
+Profile Agent Completed
+
+↓
+
+Calories Agent Started
+
+↓
+
+Calories Agent Completed
+
+↓
+
+Macro Agent Started
+
+↓
+
+Macro Agent Completed
+```
+
+These events are streamed to the frontend through Server-Sent Events (SSE) or WebSockets, allowing users to monitor progress in real time.
+
+---
+
+# 11. Error Recovery
+
+If an agent fails, the Orchestrator determines the next action.
+
+Possible actions include:
+
+- Retry the same agent
+- Retry a previous dependent agent
+- Skip optional processing
+- Return an informative error
+- Use a fallback response
+
+The decision depends on the failure type and system configuration.
+
+---
+
+# 12. Agent Categories
+
+The system divides agents into four logical categories:
+
+### Profile Intelligence
+- Profile Agent
+
+### Nutrition Intelligence
+- Calories Agent
+- Macro Agent
+
+### Knowledge Intelligence
+- Food Retrieval Agent
+
+### Planning Intelligence
+- Nutrition Planning Agent
+- Validation Agent
+- Explanation Agent
+
+This separation simplifies development and future expansion.
+
+---
+
+# Next Section
+
+The following section describes each agent in detail, including:
+
+- Responsibilities
+- Inputs
+- Outputs
+- Internal Workflow
+- Tools
+- Prompts
+- Retry Strategy
+- Failure Scenarios
+- Streaming Events
+
+➡ Continue with **Part 2 – Individual Agent Specifications**

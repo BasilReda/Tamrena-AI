@@ -1,0 +1,36 @@
+services:
+  # DEV-ONLY STACK: frontend runs Vite's dev server (not a production
+  # build), and this compose file's backend has wide-open CORS
+  # (allow_origins=["*"]). Do NOT deploy this compose file as-is to any
+  # public-facing environment. A production compose variant is future work.
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tamreena-web-backend
+    restart: unless-stopped
+    ports:
+      - "8010:8000"
+    environment:
+      WORKOUT_API_URL: http://56.228.80.150:8001
+      CV_API_URL: http://13.60.184.133:8000
+      NUTRITION_API_URL: http://13.49.224.203:8000
+    env_file:
+      - .env
+
+  # DEV-ONLY STACK: frontend runs Vite's dev server (not a production
+  # build), and this compose file's backend has wide-open CORS
+  # (allow_origins=["*"]). Do NOT deploy this compose file as-is to any
+  # public-facing environment. A production compose variant is future work.
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: tamreena-web-frontend
+    restart: unless-stopped
+    ports:
+      - "5174:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8010
+    depends_on:
+      - backend

@@ -1,0 +1,13 @@
+# Core ML
+mediapipe==0.10.32
+
+# OpenCV - CHOOSE ONE based on your environment:
+opencv-python==4.11.0.86
+
+# Config
+pydantic_settings==2.14.2
+
+# API server (full-stack)
+fastapi==0.139.2
+uvicorn[standard]==0.38.0
+python-multipart==0.0.32

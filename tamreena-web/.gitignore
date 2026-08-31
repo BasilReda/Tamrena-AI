@@ -1,0 +1,10 @@
+node_modules/
+__pycache__/
+.venv/
+*.pyc
+.env
+dist/
+frontend/dist/
+test-results/
+playwright-report/
+.worktrees/
